@@ -9,6 +9,12 @@ workflows:
             branches:
               only:
                 - main
+      - deploy:
+          requires: [build]
+          filters:
+            branches:
+              only:
+                - main
 
 jobs:
   build:
@@ -29,3 +35,28 @@ jobs:
           key: dependency-cache-{{ checksum "package-lock.json" }}
           paths:
             - ./node_modules
+
+  deploy:
+    docker:
+      - image: circleci/node:10.16.3
+    steps:
+      - checkout
+      - add_ssh_keys
+      - run:
+          name: Deploy application to EC2
+          command: |
+            : "${EC2_USERNAME:?Set EC2_USERNAME in CircleCI project environment variables}"
+            : "${EC2_PUBLIC_DNS:?Set EC2_PUBLIC_DNS in CircleCI project environment variables}"
+            ssh -o StrictHostKeyChecking=no "$EC2_USERNAME@$EC2_PUBLIC_DNS" '
+              set -e
+              app_dir="$HOME/ExampleApplication"
+              if [ -d "$app_dir/.git" ]; then
+                git -C "$app_dir" pull --ff-only origin main
+              elif [ ! -e "$app_dir" ]; then
+                git clone --branch main --single-branch https://github.com/tMub365/ExampleApplication.git "$app_dir"
+              else
+                echo "Deployment path exists but is not a Git repository: $app_dir" >&2
+                exit 1
+              fi
+              bash "$app_dir/deploy.sh"
+            '
